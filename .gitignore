@@ -1,5 +1,11 @@
 Error/
-Excel/
+ExistInSFTP/
 Log/
-Result/
-SFTP/
+MissUpload/
+ShouldUpload/
+
+hi.txt
+test.txt
+abc.txt
+temp_data.json
+

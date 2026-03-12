@@ -2,12 +2,10 @@ Error/
 ExistInSFTP/
 Log/
 MissUpload/
-ShouldUpload/
+EVisibility_Folder/
 
 .env
 
 hi.txt
-test.txt
-abc.txt
 temp_data.json
 

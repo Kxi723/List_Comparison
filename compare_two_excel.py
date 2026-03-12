@@ -4,19 +4,20 @@ from pathlib import Path
 import logging
 import pandas as pd
 from datetime import date, datetime
-from typing import Optional # can return as 'None'
 
 # Load environment variables from .env file
 load_dotenv()
 
+DATE_TIME = datetime.now()
+CURRENT_DATE_TIME = DATE_TIME.strftime("%d%m%Y_%H%M%S")
+
 # Logging
 logging.basicConfig(
-    # filename = LOG_DIR / f"{CURRENT_DATE_TIME}.log",
+    filename = f"{CURRENT_DATE_TIME}.log",
     level = logging.DEBUG,
     format = '%(asctime)s %(levelname)s: %(message)s',
-    # filemode = 'w'
+    filemode = 'w'
 )
-
 
 # -------------------------------------------------
 # Configuration Constants
@@ -24,28 +25,35 @@ logging.basicConfig(
 
 NEW_FILE = os.getenv("THE_LATEST_CSV_FILE_PATH")
 OLD_FILE = os.getenv("THE_SECOND_LATEST_CSV_FILE_PATH")
-INPUT_DIR = Path(os.getenv("CSV_FOLDER")) if os.getenv("CSV_FOLDER") else None
+CSV_DIR = Path(os.getenv("CSV_FOLDER")) if os.getenv("CSV_FOLDER") else None
 
 
 class NewShipmentFinder:
     """
-    Compares two shipment records CSV files to identify newly added shipments
-    within a specific date window.
+    Compares two shipment CSV files to identify new shipments added.
     """
 
     # If no files found, use default file for presentation
-    def __init__(self, new_file: str = NEW_FILE, old_file: str = OLD_FILE,
-                days_lookback: int = 31, dir_path: Path = INPUT_DIR):
+    def __init__(self, first_file: str = NEW_FILE, second_file: str = OLD_FILE,
+                days_lookback: int = 31, dir_path: Path = CSV_DIR):
 
-        self.first_file = new_file
-        self.second_file = old_file
+        self.first_file = first_file
+        self.second_file = second_file
         self.days_lookback = days_lookback
         self.dir_path = dir_path
+        self.demo_mode = False
         self.ship_ref_col = "Ship Ref"
         self.pod_col = "POD"
 
 
-    def read_and_find_files(self):
+    def read_and_find_files(self) -> None :
+        """
+        Read all CSV & Excel files in directory provided, compare two
+        latest files for finding new data updated. If less than two
+        files validated, the system will read designated file for demo.
+
+        This system is NOT workable with .xlsx files.
+        """
         logging.debug(f"Reading directory {self.dir_path}")
 
         # Ensure the path exists & is a directory
@@ -61,25 +69,24 @@ class NewShipmentFinder:
         
         # Prioritise for .csv files
         elif csv_lists: 
-            logging.debug("Process A started to find two latest .csv files")
+            logging.debug("Process A started")
+            logging.debug("Finding two latest .csv files")
 
             files_dict = {}
-            valid_files = 0
 
             for file in csv_lists:
+
                 try:
                     # Read only header row
                     columns = pd.read_csv(file, nrows=0).columns
                 
                     # Skip invalid .csv file
                     if self.ship_ref_col not in columns or self.pod_col not in columns:
-                        logging.debug(f"File not considered {file}")
+                        logging.debug(f"File not considered: {file.name}")
                         continue
-                
-                    valid_files += 1
 
                 except Exception as e:
-                    logging.debug(f"File not considered {file}")
+                    logging.debug(f"Error reading: {file.name} | {e}")
                     continue
 
                 # Get file modification timestamp and convert to Datetime object
@@ -87,17 +94,24 @@ class NewShipmentFinder:
                 datestamp = datetime.fromtimestamp(timestamp)
 
                 # Utilise setdefault() to ensure datestamp didnt overwrite
-                files_dict.setdefault(file.name, datestamp)
+                files_dict.setdefault(file, datestamp)
 
-            logging.debug(f"{valid_files} .csv files considered")
+            if len(files_dict) < 2:
+                logging.info(f"{len(files_dict)} valid .csv file is insufficient for further action")
+                logging.info("The system will utilise designated file for demo")
+                self.demo_mode = True
 
-            # Sort in descending order based on value(datestamp)
-            sorted_files = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
-            self.first_file = sorted_files[0][0]
-            self.second_file = sorted_files[1][0]
+            else:
+                logging.debug(f"{len(files_dict)} .csv files validated")
 
-            logging.info(f"Latest file found: {sorted_files[0][0]}")
-            logging.info(f"Second file found: {sorted_files[1][0]}")
+                # Sort in descending order based on value(datestamp)
+                files_dict = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
+                self.first_file = files_dict[0][0]
+                self.second_file = files_dict[1][0]
+
+                logging.info(f"Latest file found: {files_dict[0][0].name}")
+                logging.info(f"Second file found: {files_dict[1][0].name}")
+
             logging.debug("Process A ended")
 
         # No Function for .xlsx files
@@ -106,101 +120,166 @@ class NewShipmentFinder:
             raise SystemExit("This program currently doesn't support for .xlsx files")
 
 
-    # '->' is for type hinting, indicating the return type of the function
-    def read_and_filter_csv(self, filepath: str) -> pd.DataFrame:
+    def csv_filter_by_date(self, file_path: str) -> pd.DataFrame:
         """
-        Reads CSV, filters data then return dataframe with past 30days record.
+        Filters past 30days data and return DataFrame.
+        If using designated files, the date is already been set.
         """
+        logging.info(f"Loading file: {Path(file_path).name}")
 
         try:
-            df = pd.read_csv(filepath, usecols=[self.ship_ref_col, self.pod_col])
+            df = pd.read_csv(file_path, usecols=[self.ship_ref_col, self.pod_col])
 
         except FileNotFoundError:
-            raise FileNotFoundError("File not found")
-        
-        except Exception as e:
-            print(f"Error reading {filepath}: {e}")
-            return pd.DataFrame()
+            raise FileNotFoundError(f"File not found: {Path(file_path).name}")
 
-        # Convert date column to datetime
+        except Exception as e:
+            raise SystemExit(f"Error reading {Path(file_path).name} | {e}")
+
+        # Convert date data to datetime
+        # "Coerce" return invalid date data as NaT
         df[self.pod_col] = pd.to_datetime(df[self.pod_col], errors="coerce")
 
-        # Define date window
-        today = pd.Timestamp(date.today())
-        start_date = today - pd.Timedelta(days=self.days_lookback)
+        # Get date range
+        today_date = pd.Timestamp(date.today()) if not self.demo_mode else pd.Timestamp("2026-03-11")
+        start_date = today_date - pd.Timedelta(days=self.days_lookback)
 
-        # Apply date filter
+        # Apply date filter, data needed will be store as True value
         date_mask = (df[self.pod_col].dt.normalize() >= start_date) & \
-                    (df[self.pod_col].dt.normalize() <= today)
+                    (df[self.pod_col].dt.normalize() <= today_date)
         
+        # Copy True value only
         return df[date_mask].copy()
 
-    def find_new_records(self) -> Optional[pd.DataFrame]:
-        """Identifies records in the new file that don't exist in the old file."""
-        new_df = self.read_and_filter_csv(self.new_file)
-        old_df = self.read_and_filter_csv(self.old_file)
+
+    def find_new_records(self):
+        """
+        Identify Ship Ref in new file that don't exist in the old file.
+        """
+        logging.debug("Process B started")
+
+        new_df = self.csv_filter_by_date(self.first_file)
+        old_df = self.csv_filter_by_date(self.second_file)
+
+        logging.debug("Process B ended")
+        logging.debug("Process C started")
 
         if new_df.empty:
-            print("New dataframe is empty or could not be read. Cannot proceed.")
-            return None
+            raise SystemExit("New dataframe is empty.")
 
-        # Find Ship Refs in new that don't exist in old
+        # If old file is missing or empty, everything is considered "new added"
         if old_df.empty:
-            # If old file is missing or empty, everything in new is considered "added"
-            added_records = new_df.copy()
+            added_df = new_df.copy()
+            logging.info("All data in past 30days are new added.")
+
+        # '~' means NOT, all data not in old_df means new data
         else:
             added_mask = ~new_df[self.ship_ref_col].isin(old_df[self.ship_ref_col])
-            added_records = new_df[added_mask].copy()
+            added_df = new_df[added_mask].copy()
+            logging.info("New ship ref added have been found.")
+        
+        logging.debug("Process C ended")
 
-        # Sort by Date (Descending) and Original Index (Ascending)
-        added_records.index.name = "Original_Index"
-        added_records = added_records.sort_values(
-            by=[self.pod_col, "Original_Index"], 
+        added_df.index.name = "new_index"
+
+        # Sort by date in descending order and index
+        added_df = added_df.sort_values(
+            by=[self.pod_col, "new_index"], 
             ascending=[False, True]
         ).reset_index(drop=True)
+
+        self.display_result_in_terminal(added_df)
+        self.write_result_in_txt(added_df)
+
+
+    def write_result_in_txt(self, new_data: pd.DataFrame):
+        """
+        Export the new Ship Ref to .txt file for futher comparison.
+
+        If last created .txt file havent been compared, the system will not
+        create a new .txt file. This reduce duplicate files created.
+        """
+
+        current_time = datetime.now()
+        date_str = current_time.strftime("%d%m%Y")
         
-        added_records.index.name = "Index"
+        output_file_name = f"{date_str}.txt"
+        output_path = self.dir_path / output_file_name
 
-        self._print_results(added_records, date.today())
-        return added_records
+        # Ensure not creating same .txt file
+        if output_path.exists():
+            logging.warning(f"File {output_file_name} already exists.")
+            print(f"{output_file_name} already exists. No new file created.")
 
-    def _print_results(self, added: pd.DataFrame, today: date):
-        """Prints the summary and the newly added records."""
-        print(f"\nToday's date : {today}")
-        print(f"New matching rows (since last run): {len(added)}\n")
+        else:
+            # Check latest .txt file to avoid redundant data export
+            txt_files = list(self.dir_path.glob("*.txt"))
 
-        if added.empty:
-            print(f"No rows found for today's date in column '{self.pod_col}'.")
-            return
+            if txt_files:
+                latest_txt = max(txt_files, key=os.path.getmtime)
+
+                try:
+                    # Read past data, single column with no header
+                    past_df = pd.read_csv(latest_txt, header=None, dtype=str)
+                    past_list = past_df[0].tolist()
+                    current_list = new_data[self.ship_ref_col].astype(str).tolist()
+
+                    if past_list == current_list:
+                        logging.warning(f"Data same as latest file {latest_txt.name}.")
+                        print(f"Data matches the latest file: {latest_txt.name}. No new file created.")
+                        return
+
+                except pd.errors.EmptyDataError as e:
+                    logging.warning(e)
+
+                except Exception as e:
+                    logging.warning(f"Could not read {latest_txt.name} | {e}")
+
+            # Save as text format without index and header
+            new_data[self.ship_ref_col].to_csv(output_path, index=False, header=False)
+            logging.info(f"Exported new ship refs to {output_path.name}")
+
+
+    def display_result_in_terminal(self, new_data: pd.DataFrame):
+        """
+        Display new Ship Ref added from older data.
+        """
+        print(f"Today's date: {date.today()}")
+
+        if new_data.empty:
+            raise SystemExit("No new ship ref is added.")
 
         # Formatting output
-        print(f"{'Index':<6} {self.ship_ref_col:<20} {self.pod_col}")
-        print("─" * 60)
-        for idx, row in added.iterrows():
-            # Handle potential NaT (Not a Time) values before trying to get .date()
+        print("─" * 33)
+        print(f"{'No':<4} {self.ship_ref_col:^17} {self.pod_col:^10}")
+        print("─" * 33)
+
+        for index, row in new_data.iterrows():
+
+            # Handle potential NaT values before .date()
             pod_val = row[self.pod_col]
             pod_str = pod_val.date() if pd.notnull(pod_val) else "Invalid Date"
-            print(f"{idx:<6} {row[self.ship_ref_col]:<20} {pod_str}")
 
+            print(f"{index+1:<4} {row[self.ship_ref_col]:<17} {pod_str}")
+
+        print("─" * 33)
 
 
 if __name__ == "__main__":
-
     logging.info("Program started")
 
     try:
         finder = NewShipmentFinder()
         finder.read_and_find_files()
-        # finder.find_new_records()
+        finder.find_new_records()
 
     except FileNotFoundError as e:
         logging.error(e)
-        print(e)
 
     except SystemExit as e:
         logging.error(e)
-        print(e)
 
     except Exception as e:
         logging.error(e)
-        print(e)
+        
+    logging.info("Program Ended")

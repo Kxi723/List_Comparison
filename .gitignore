@@ -1,11 +1,13 @@
+__pycache__/
+
 Error/
+
 ExistInSFTP/
-Log/
+
 MissUpload/
+
 EVisibility_Folder/
 
 .env
 
-hi.txt
-temp_data.json
-
+program_log.log

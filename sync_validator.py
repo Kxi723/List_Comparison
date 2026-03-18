@@ -18,7 +18,6 @@ Directories:
     - SFTP/    : Directory for the actual uploaded SFTP filename list (.txt)
     - Result/  : Directory for the files missing from SFTP (.txt)
     - Error/   : Directory for the extra files found in SFTP (.txt)
-    - Log/     : Directory for the log (.log)
 """
 
 import logging
@@ -36,7 +35,7 @@ setup_logging()
 
 def read_file_list(dir_path: Path):
     """
-    Iterate over all files in 'Excel' & 'SFTP' directory.
+    Iterate over all files in 'Evisibility_Folder' & 'ExistInSFTP' directory.
     Only one .txt file is accepted in each directory. Please replace with 
     latest file, no naming required.
 

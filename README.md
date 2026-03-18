@@ -1,4 +1,4 @@
-# File Comparator
+# SFTP Reconciler
 
 > A handy Python script to reconcile expected files (from Excel) against actual files uploaded to an SFTP server.
 
@@ -11,12 +11,11 @@ This tool compares two `.txt` lists of filenames to find discrepancies. It autom
 
 ## Folder Structure
 The script relies on a specific directory structure. **Important:** Only keep exactly ONE `.txt` file in the input folders at a time.
-* `Excel/` - Put your expected filename list here (`.txt`).
+* `Evisibility_Folder/` - Store your csv here (`*.csv`).
 * `SFTP/` - Put your actual SFTP filename list here (`.txt`).
 * `Result/` - Generated list of missing files will be saved here.
 * `Error/` - Generated list of extra/unexpected files will be saved here.
-* `Log/` - Check here for detailed execution logs.
 
 ## How to Use
-1. Drop your expected list into the `Excel/` folder.
-2. Drop your actual list into the `SFTP/` folder.
+1. Run 'csv_extractor' to get new ship_ref list.
+2. Drop your sftp list into the `SFTP/` folder.

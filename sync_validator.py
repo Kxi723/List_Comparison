@@ -33,14 +33,8 @@ setup_logging()
 # Functions
 # =============================================================================
 
-def read_file_list(dir_path: Path):
+def get_latest_txt(dir_path: Path, file_type: str = ""):
     """
-    Iterate over all files in 'Evisibility_Folder' & 'ExistInSFTP' directory.
-    Only one .txt file is accepted in each directory. Please replace with 
-    latest file, no naming required.
-
-    Return a list contains files name either files listed in Excel or 
-    files listed from SFTP by generate Linux command 
     """
 
     logging.debug(f"Reading directory {dir_path}")
@@ -49,36 +43,28 @@ def read_file_list(dir_path: Path):
     if not dir_path.exists() or not dir_path.is_dir():
         raise FileNotFoundError("Directory not found")
 
-    # list() constructor, reads .txt files only
     txt_files = list(dir_path.glob("*.txt"))
+    logging.debug(f"{len(txt_files)} .txt files found")
 
-    if len(txt_files) > 1:
-        raise SystemExit(f"Found {len(txt_files)} .txt files. Please keep only one .txt file you want")
-
+    # Nothing inside the directory
     if not txt_files:
-        raise FileNotFoundError("No .txt file found")
+        raise FileNotFoundError("Didn't find any .txt files")
 
-    # Only one file left
-    file_path = txt_files[0]
+    files_dict = {}
+    for file in txt_files: 
 
-    # Return ship_ref in list() format
-    try:
-        with open(file_path, 'r', encoding='utf-8') as ship_ref:
-            
-            # Get file modification timestamp and convert to Datetime object
-            timestamp = os.path.getmtime(file_path)
-            datestamp = datetime.fromtimestamp(timestamp)
+        # Get file modification timestamp and convert to Datetime object
+        timestamp = os.path.getmtime(file)
+        datestamp = datetime.fromtimestamp(timestamp)
 
-            logging.debug(f"File readed: {file_path.name} | Last modified date: {datestamp}")
+        # Utilise setdefault() to ensure datestamp didnt overwrite
+        files_dict.setdefault(file, datestamp)
 
-            # print("Last Modified Date: ", datestamp.date())
-            # print("Today Date: ", DATE_TIME.date())
+    # Sort in descending order based on value(datestamp)
+    files_dict = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
 
-            # Remove '\n' in list()
-            return ship_ref.read().splitlines()
-
-    except Exception as e:
-        raise SystemExit(f"Couldn't read {file_path.name} | Error {e}")
+    logging.info(f"Latest {file_type} file found: {files_dict[0][0].name}")
+    return files_dict[0][0]
 
 
 class FileComparator:
@@ -200,15 +186,15 @@ if __name__ == "__main__":
 
     try:
         # Read data from .txt files
-        excel_list = read_file_list(CSV_DIR)
-        sftp_list = read_file_list(SFTP_DIR)
+        excel_list = get_latest_txt(CSV_DIR, "csv")
+        sftp_list = get_latest_txt(SFTP_DIR, "sftp")
         
         # Initialize and run the comparator
-        comparator = FileComparator(excel_list, sftp_list)
+        # comparator = FileComparator(excel_list, sftp_list)
 
-        comparator.clean_directory_path()
-        comparator.matching_process()
-        comparator.upload_results()
+        # comparator.clean_directory_path()
+        # comparator.matching_process()
+        # comparator.upload_results()
         
     except FileNotFoundError as e:
         logging.error(e)

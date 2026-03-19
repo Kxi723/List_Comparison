@@ -24,7 +24,7 @@ import logging
 import os
 from pathlib import Path
 from datetime import datetime
-from config import setup_logging, CURRENT_DATE_TIME, CSV_DIR, SFTP_DIR, RESULT_DIR, ERROR_DIR
+from config import setup_logging, CURRENT_DATE_TIME, CSV_DIR, SFTP_DIR, RESULT_DIR
 
 # Initialize shared logging
 setup_logging()
@@ -33,39 +33,6 @@ setup_logging()
 # Functions
 # =============================================================================
 
-def get_latest_txt(dir_path: Path, file_type: str = ""):
-    """
-    """
-
-    logging.debug(f"Reading directory {dir_path}")
-
-    # Ensure the path exists & is a directory
-    if not dir_path.exists() or not dir_path.is_dir():
-        raise FileNotFoundError("Directory not found")
-
-    txt_files = list(dir_path.glob("*.txt"))
-    logging.debug(f"{len(txt_files)} .txt files found")
-
-    # Nothing inside the directory
-    if not txt_files:
-        raise FileNotFoundError("Didn't find any .txt files")
-
-    files_dict = {}
-    for file in txt_files: 
-
-        # Get file modification timestamp and convert to Datetime object
-        timestamp = os.path.getmtime(file)
-        datestamp = datetime.fromtimestamp(timestamp)
-
-        # Utilise setdefault() to ensure datestamp didnt overwrite
-        files_dict.setdefault(file, datestamp)
-
-    # Sort in descending order based on value(datestamp)
-    files_dict = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
-
-    logging.info(f"Latest {file_type} file found: {files_dict[0][0].name}")
-    return files_dict[0][0]
-
 
 class FileComparator:
     """
@@ -73,51 +40,137 @@ class FileComparator:
     out which files is missing in another server.
     """
 
-    def __init__(self, file_listed_in_excel: list, file_uploaded_in_sftp: list):
-        self.file_listed_in_excel = file_listed_in_excel
-        self.file_uploaded_in_sftp = file_uploaded_in_sftp
+    def __init__(self, csv_dir: Path = CSV_DIR, sftp_dir: Path = SFTP_DIR,
+                result_dir: Path = RESULT_DIR):
 
-        # Store cleaned ship_ref data
-        self.ship_ref_in_sftp = []
+        self.csv_dir = csv_dir
+        self.sftp_dir = sftp_dir
+        self.result_dir = result_dir
 
         # Store comparison result
         self.file_missing_in_sftp = []
         self.extra_file_in_sftp = []
-        self.filtering_count = 0
-
-        # Ensure output directory exists before starting
-        self.result_path = RESULT_DIR
-        self.error_path = ERROR_DIR
+        self.ship_ref_in_sftp = []
 
 
-    def clean_directory_path(self):
+    def read_latest_txt(self, dir_path: Path, sftp: bool = False) -> list:
         """
+        Read the latest modified text file in directory provided. Run
+        'csv_extractor.py' to generate csv text file, manual create & paste
+        data in sftp text file.
+
+        Args:
+            dir_path  : Directory to search for .txt files.
+            file_type : Label used in log messages (e.g. 'csv', 'sftp').
+            compare   : If True, read the TWO latest files and return lines
+                        present in the newest (A) but absent in the previous
+                        one (B) — i.e. the A - B set difference.
+                        Default False keeps the original single-file behaviour.
+        """
+        logging.debug(f"Reading directory {dir_path}")
+        file_type = "sftp" if sftp else "csv"
+
+        # Ensure the path exists & is a directory
+        if not dir_path.exists() or not dir_path.is_dir():
+            raise FileNotFoundError("Directory not found")
+
+        txt_files = list(dir_path.glob("*.txt"))
+        logging.debug(f"{len(txt_files)} .txt files found")
+
+        # Nothing inside the directory
+        if not txt_files:
+            raise FileNotFoundError("Didn't find any .txt files")
+
+        # If only one file, everything is considered "new added"
+        if sftp and len(txt_files) < 2:
+            logging.warning("All sftp in past 10days are new uploaded.")
+
+        files_dict = {}
+        for file in txt_files:
+
+            # Get file modification timestamp and convert to Datetime object
+            timestamp = os.path.getmtime(file)
+            datestamp = datetime.fromtimestamp(timestamp)
+
+            # Utilise setdefault() to ensure datestamp didnt overwrite
+            files_dict.setdefault(file, datestamp)
+
+        # Sort in descending order based on value(datestamp)
+        files_sorted = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
+
+        logging.info(f"Latest {file_type} file found: {files_sorted[0][0].name}")
+
+        # For csv, return one list
+        if not sftp:
+            try:
+                with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
+                    # Remove '\n' in list()
+                    return data.read().splitlines()
+                
+            except Exception as e:
+                raise SystemExit(f"Couldn't read {files_sorted[0][0].name} | {e}")
+
+        # For sftp, get new data upload
+        if sftp:
+            logging.info(f"Second {file_type} file found: {files_sorted[1][0].name}")
+            
+            try:
+                with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
+                    new_list = data.read().splitlines()
+            except Exception as e:
+                raise SystemExit(f"Couldn't read {files_sorted[0][0].name} | {e}")
+
+            try:
+                with open(files_sorted[1][0], 'r', encoding='utf-8') as data:
+                    old_list = data.read().splitlines()
+            except Exception as e:
+                raise SystemExit(f"Couldn't read {files_sorted[1][0].name} | {e}")
+
+            new_data = [line for line in new_list if line not in set(old_list)]
+            logging.info(f"{len(new_data)} new ship_ref found compared to previous file")
+
+            return new_data
+
+
+    def filter_parent_path(self, sftp_path: Path) -> list:
+        """        
         Iterates through all files listed in SFTP, remove directory paths 
         (/opt/sftp/...) and unnecessary suffixes like '_DDMMYYYY123456.pdf'
         """
 
-        logging.debug("Cleaning directory path readed")
+        sftp_data = self.read_latest_txt(sftp_path, True)
 
-        for ship_ref in self.file_uploaded_in_sftp:
+        cleaned_data = []
 
-            # Remove the directory path to get the filename
+        for ship_ref in sftp_data:
+
+            # Remove directory path to get file name
             filename = Path(ship_ref).name
 
-            # Use string slicing to remove the date suffix
+            # Use string slicing to remove date suffix
             index = filename.find("_")
 
             if index != -1:
-                self.filtering_count += 1
-                self.ship_ref_in_sftp.append(filename[:index])
-
-            # Add file name directly if no underscore is found
+                cleaned_data.append(filename[:index])
+            
             else:
-                self.ship_ref_in_sftp.append(filename)
+                # Add file name directly if no '_' found
+                cleaned_data.append(filename)
 
-        logging.debug(f"{self.filtering_count} files path have been cleaned")
+        if not cleaned_data:
+            raise SystemExit("None valid ship_ref is read")
 
-        if not self.ship_ref_in_sftp:
-            raise SystemExit("No file is stored in new list")
+        return cleaned_data
+    
+
+    def get_sftp(self, sftp_path: Path) -> list:
+        """
+        Return new SFTP data since the last snapshot (A - B set difference).
+        Delegates to read_latest_txt() with compare=True.
+        """
+        return self.read_latest_txt(sftp_path, file_type="sftp", compare=True)
+
+
 
 
     def matching_process(self):
@@ -127,22 +180,29 @@ class FileComparator:
         Excel_data is the base, use sftp_data deduct it
         """
 
-        logging.debug(f"{len(set(self.file_listed_in_excel))} files listed in Excel")
-        logging.debug(f"{len(set(self.ship_ref_in_sftp))} files uploaded in SFTP past 24hrs")
+        csv_data = self.read_latest_txt(self.csv_dir, "csv")
+        sftp_data = self.filter_parent_path(self.sftp_dir)
+
+        # FIX 4: Was `self.sftp_data` (non-existent attribute), corrected to local variable `sftp_data`
+        logging.debug(f"{len(set(sftp_data))} files uploaded in SFTP past 24hrs")
 
         logging.info("Comparison started")
         
         # Convert to sets for efficient O(1) lookups
-        excel_set = set(self.file_listed_in_excel)
-        sftp_set = set(self.ship_ref_in_sftp)
+        # FIX 5: Was `self.file_listed_in_excel` (non-existent attribute), corrected to local variable `csv_data`
+        excel_set = set(csv_data)
+        # FIX 6: Was `self.sftp_data` (non-existent attribute), corrected to local variable `sftp_data`
+        sftp_set = set(sftp_data)
 
         # Files haven't uploaded to SFTP
-        missing_files = [f for f in self.file_listed_in_excel if f not in sftp_set]
+        # FIX 7: Was `self.file_listed_in_excel`, corrected to `csv_data`
+        missing_files = [f for f in csv_data if f not in sftp_set]
         # Use dictionary to remove duplicates (key is unique), then convert back to list
         self.file_missing_in_sftp = list(dict.fromkeys(missing_files))
 
         # Files not listed in Excel
-        extra_files = [f for f in self.ship_ref_in_sftp if f not in excel_set]
+        # FIX 8: Was `self.sftp_data`, corrected to `sftp_data`
+        extra_files = [f for f in sftp_data if f not in excel_set]
         self.extra_file_in_sftp = list(dict.fromkeys(extra_files))
 
         logging.info("Comparison completed")
@@ -161,15 +221,10 @@ class FileComparator:
 
         # Define output path for both
         file_missing_path = self.result_path / f"{CURRENT_DATE_TIME}.txt"
-        file_extra_path = self.error_path / f"{CURRENT_DATE_TIME}.txt"
 
         # Writing results
         with open(file_missing_path, 'w', encoding='utf-8') as file:
             for fileName in self.file_missing_in_sftp:
-                file.write(f"{fileName}\n")
-                
-        with open(file_extra_path, 'w', encoding='utf-8') as file:
-            for fileName in self.extra_file_in_sftp:
                 file.write(f"{fileName}\n")
 
         logging.info(f"Results have been uploaded and renamed: {CURRENT_DATE_TIME}.txt")
@@ -182,18 +237,11 @@ class FileComparator:
 
 if __name__ == "__main__":
 
-    logging.info("Program started")
+    logging.info("sync_validator.py program started")
 
-    try:
-        # Read data from .txt files
-        excel_list = get_latest_txt(CSV_DIR, "csv")
-        sftp_list = get_latest_txt(SFTP_DIR, "sftp")
-        
-        # Initialize and run the comparator
-        # comparator = FileComparator(excel_list, sftp_list)
-
-        # comparator.clean_directory_path()
-        # comparator.matching_process()
+    try:        
+        comparator = FileComparator()
+        comparator.matching_process()
         # comparator.upload_results()
         
     except FileNotFoundError as e:
@@ -209,4 +257,4 @@ if __name__ == "__main__":
         print(e)
 
     finally:
-        logging.info("Program ended")
+        logging.info("sync_validator.py program ended")

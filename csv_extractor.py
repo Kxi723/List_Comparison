@@ -52,8 +52,7 @@ class NewShipmentFinder:
         
         # Prioritise for .csv files
         elif csv_lists: 
-            logging.debug("Process A started")
-            logging.debug("Finding two latest .csv files")
+            logging.debug("Reading .csv files")
 
             files_dict = {}
 
@@ -65,11 +64,11 @@ class NewShipmentFinder:
                 
                     # Skip invalid .csv file
                     if self.ship_ref_col not in columns or self.pod_col not in columns:
-                        logging.debug(f"File not considered: {file.name}")
+                        logging.debug(f"File not considered {file.name}")
                         continue
 
                 except Exception as e:
-                    logging.debug(f"Error reading: {file.name} | {e}")
+                    logging.debug(f"Error reading {file.name} | {e}")
                     continue
 
                 # Get file modification timestamp and convert to Datetime object
@@ -92,10 +91,8 @@ class NewShipmentFinder:
                 self.first_file = files_dict[0][0]
                 self.second_file = files_dict[1][0]
 
-                logging.info(f"Latest file found: {files_dict[0][0].name}")
-                logging.info(f"Second file found: {files_dict[1][0].name}")
-
-            logging.debug("Process A ended")
+                logging.info(f"Latest csv file found {files_dict[0][0].name}")
+                logging.info(f"Second csv file found {files_dict[1][0].name}")
 
         # No Function for .xlsx files
         else:
@@ -108,7 +105,6 @@ class NewShipmentFinder:
         Filters past 30days data and return DataFrame.
         If using designated files, the date is already been set.
         """
-        logging.info(f"Loading file: {Path(file_path).name}")
 
         try:
             df = pd.read_csv(
@@ -117,8 +113,10 @@ class NewShipmentFinder:
                 dtype={self.ship_ref_col: str}
             )
 
+            logging.info(f"Extracting data from {Path(file_path).name}")
+
         except FileNotFoundError:
-            raise FileNotFoundError(f"File not found: {Path(file_path).name}")
+            raise FileNotFoundError(f"File not found {Path(file_path).name}")
 
         except Exception as e:
             raise SystemExit(f"Error reading {Path(file_path).name} | {e}")
@@ -135,6 +133,8 @@ class NewShipmentFinder:
         date_mask = (df[self.pod_col].dt.normalize() >= start_date) & \
                     (df[self.pod_col].dt.normalize() <= today_date)
         
+        logging.debug(f"Retrieve past 30days data")
+        
         # Copy True value only
         return df[date_mask].copy()
 
@@ -143,13 +143,9 @@ class NewShipmentFinder:
         """
         Identify Ship Ref in new file that don't exist in the old file.
         """
-        logging.debug("Process B started")
 
         new_df = self.csv_filter_by_date(self.first_file)
         old_df = self.csv_filter_by_date(self.second_file)
-
-        logging.debug("Process B ended")
-        logging.debug("Process C started")
 
         if new_df.empty:
             raise SystemExit("New dataframe is empty.")
@@ -157,7 +153,7 @@ class NewShipmentFinder:
         # If old file is missing or empty, everything is considered "new added"
         if old_df.empty:
             added_df = new_df.copy()
-            logging.warning("All data in past 30days are new added.")
+            logging.warning("All data in past 30days are new added")
 
         # '~' means NOT, all data not in old_df means new data
         else:
@@ -165,12 +161,10 @@ class NewShipmentFinder:
             added_df = new_df[added_mask].copy()
 
             if added_df.empty:
-                logging.info("No new ship ref found compared to old file.")
+                logging.info("No new ship_ref added")
 
             else:
-                logging.info("New ship ref added have been found.")
-        
-        logging.debug("Process C ended")
+                logging.info(f"Found {len(added_df)} new ship_ref added")
 
         added_df.index.name = "new_index"
 
@@ -199,8 +193,8 @@ class NewShipmentFinder:
 
         # Ensure not creating same .txt file
         if output_path.exists():
-            logging.warning(f"File {output_file_name} already exists.")
-            print(f"{output_file_name} already exists. No new file created.")
+            logging.warning(f"Output file {output_file_name} had been generated")
+            print(f"File {output_file_name} had been generated. No new file created")
 
         else:
             # Check latest .txt file to avoid redundant data export
@@ -217,8 +211,8 @@ class NewShipmentFinder:
                     current_list = new_data[self.ship_ref_col].astype(str).tolist()
 
                     if past_list == current_list:
-                        logging.warning(f"Result same as latest file: {latest_txt.name}, no file created.")
-                        print(f"Data matches the latest file: {latest_txt.name}, no file created.")
+                        logging.warning(f"Result same as latest file {latest_txt.name}, no file created")
+                        print(f"Data matches the latest file {latest_txt.name}, no file created")
                         return
 
                 except pd.errors.EmptyDataError as e:
@@ -229,7 +223,7 @@ class NewShipmentFinder:
 
             # Save as text format without index and header
             new_data[self.ship_ref_col].to_csv(output_path, index=False, header=False)
-            logging.info(f"Exported new ship refs to {output_path.name}")
+            logging.info(f"Exported result to {output_path.name}")
 
 
     def display_result_in_terminal(self, new_data: pd.DataFrame):

@@ -18,25 +18,21 @@ SCRIPT_DIR = Path(__file__).parent
 CSV_DIR = SCRIPT_DIR / "Evisibility_Folder"
 SFTP_DIR = SCRIPT_DIR / "ExistInSFTP"
 RESULT_DIR = SCRIPT_DIR / "MissUpload"
-ERROR_DIR = SCRIPT_DIR / "Error"
-LOG_DIR = SCRIPT_DIR
 
 # Environment paths
 NEW_FILE = os.getenv("THE_LATEST_CSV_FILE_PATH")
 OLD_FILE = os.getenv("THE_SECOND_LATEST_CSV_FILE_PATH")
 
 # Ensure Log directory exists
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
-ERROR_DIR.mkdir(parents=True, exist_ok=True)
 
 # Shared Logging Setup
 def setup_logging():
-    log_file_path = LOG_DIR / "activity.log"
+    log_file_path = SCRIPT_DIR / "activity.log"
     
     logging.basicConfig(
         filename=log_file_path,
         level=logging.DEBUG,
         format='%(asctime)s %(levelname)s: %(message)s',
-        filemode='a'
+        filemode='w'
     )

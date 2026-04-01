@@ -11,12 +11,6 @@ Workflow:
     5. Merge new CSV data with file missed from last time.
     6. Compare CSV with SFTP.
     7. Export results with timestamp
-
-Directories (configured in 'config.py'):
-    - evisibility_folder/ : (.txt generated from csv_extractor)
-    - sftp/ : (.txt, manually prepared)
-    - result/ : Output for files haven't upload to SFTP
-    - surplus/ : Output for file hasn't update in CSV
 """
 
 import logging

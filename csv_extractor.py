@@ -18,7 +18,7 @@ class NewShipmentFinder:
 
     # If no files found, use default file for presentation
     def __init__(self, first_file: str = NEW_FILE, second_file: str = OLD_FILE,
-                days_lookback: int = 31, dir_path: Path = CSV_DIR):
+                days_lookback: int = 60, dir_path: Path = CSV_DIR):
 
         self.first_file = first_file
         self.second_file = second_file

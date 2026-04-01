@@ -236,9 +236,9 @@ class NewShipmentFinder:
             raise SystemExit("No new ship ref is added.")
 
         # Formatting output
-        print("─" * 33)
+        print("-" * 33)
         print(f"{'No':<4} {self.ship_ref_col:^17} {self.pod_col:^10}")
-        print("─" * 33)
+        print("-" * 33)
 
         for index, row in new_data.iterrows():
 
@@ -248,7 +248,7 @@ class NewShipmentFinder:
 
             print(f"{index+1:<4} {row[self.ship_ref_col]:<17} {pod_str}")
 
-        print("─" * 33)
+        print("-" * 33)
 
 # -------------------------------------------------
 # Main Entry Point

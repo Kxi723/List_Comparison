@@ -30,7 +30,7 @@ def setup_logging():
     
     logging.basicConfig(
         filename=log_file_path,
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)s %(levelname)s: %(message)s',
         filemode='a'
     )

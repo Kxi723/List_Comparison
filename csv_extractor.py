@@ -129,7 +129,7 @@ class NewShipmentFinder:
         date_mask = (df[self.pod_col].dt.normalize() >= start_date) & \
                     (df[self.pod_col].dt.normalize() <= today_date)
         
-        logging.debug(f"Retrieve past 30days data")
+        logging.debug(f"Retrieve past 60days data")
         
         # Copy True value only
         return df[date_mask].copy()

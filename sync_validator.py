@@ -162,27 +162,86 @@ class FileComparator:
 
     def read_last_record(self, dir_path: Path, label: str = "") -> list:
         """
-        Read the most recently modified .txt file.
+        Read and load data from the latest generated text file.
 
         Used to retrieve the previous result or surplus list so that
         still-relevant data can be carried forward.
         """
 
+        logging.debug(f"Reading directory {dir_path}")
         txt_files = list(dir_path.glob("*.txt"))
 
         if not txt_files:
+            logging.debug(f"No text file exists in this directory")
             return []
 
         latest = max(txt_files, key=os.path.getmtime)
-        logging.debug(f"Reading previous {label} file: {latest.name}")
+        logging.debug(f"Latest {label} file is: {latest.name}")
 
         try:
             with open(latest, 'r', encoding='utf-8') as f:
-                return f.read().splitlines()
+                data = f.read().splitlines()
+                logging.info(f"{len(data)} data loaded from {label} file")
+                return data
 
         except Exception as e:
-            logging.warning(f"Could not read {latest.name} | {e}")
+            logging.warning(f"Error reading {latest.name} | {e}")
             return []
+
+
+    def display_result_in_terminal(self):
+        """
+        Display missing data from SFTP.
+        """
+
+        if not self.result_list:
+            raise SystemExit("All data have been upload successfully")
+
+        print("─" * 20)
+        print(f"{'No':<4} {'Ship_Ref ':^16}")
+        print("─" * 20)
+
+        for index, file in enumerate(self.result_list, 1):
+            print(f"{index:<4} {file:<16}")
+
+        print("─" * 20)
+
+
+    def export_result(self, output_data: list, path: Path, title: str = ""):
+        """
+        Export result to text file with timestamp.
+
+        If latest output file is same as the current data, the system will
+        not create a new text file. This reduce duplicate files created.
+        """
+
+        # Check latest .txt file to avoid redundant data export
+        txt_files = list(path.glob("*.txt"))
+
+        if txt_files:
+            latest_txt = max(txt_files, key=os.path.getmtime)
+
+            try:
+                with open(latest_txt, 'r', encoding='utf-8') as file:
+                    past_list = file.read().splitlines()
+
+                if past_list == output_data:
+                    logging.warning(f"{title} data is same as the latest file {latest_txt.name}, no file is created")
+                    return
+
+            except Exception as e:
+                logging.warning(f"Error reading {latest_txt.name} | {e}")
+
+        # Define output path
+        result_file = path / f"{CURRENT_DATE_TIME}.txt"
+
+        # Writing results
+        with open(result_file, 'w', encoding='utf-8') as file:
+            for ship_ref in output_data:
+                file.write(f"{ship_ref}\n")
+
+        logging.info(f"{title} data have been uploaded and renamed as {CURRENT_DATE_TIME}.txt")
+        print(f"{title} data saved at {CURRENT_DATE_TIME}.txt")
 
 
     def mark_sftp_processed(self):
@@ -190,8 +249,6 @@ class FileComparator:
         Rename the latest SFTP file with a full timestamp (HHMMSS)
         to mark it as processed, preventing repeated consumption
         of the same SFTP data.
-
-        e.g. 07042026_AM.txt → 07042026_145856.txt
         """
 
         if not self.latest_sftp_file or not self.latest_sftp_file.exists():
@@ -211,44 +268,6 @@ class FileComparator:
         print(f"SFTP file renamed: {self.latest_sftp_file.name} → {new_name}")
 
 
-    # def carry_forward_missing(self, sftp_set: set) -> list:
-    #     """
-    #     Return Ship_Ref from the previous result file that are still 
-    #     absent from the current SFTP set.
-
-    #     If Ship_Ref have been uploaded, it will be dropped and will not 
-    #     appear in the new result file.
-    #     """
-
-    #     prev_missing = self.read_last_record(self.result_dir, "result")
-
-    #     if not prev_missing:
-    #         logging.debug("No previous result file found, nothing to carry forward")
-    #         return []
-
-    #     still_missing = [ref for ref in prev_missing if ref not in sftp_set]
-
-    #     return still_missing
-
-
-    def display_result_in_terminal(self):
-        """
-        Display Ship_Ref that are missing from SFTP.
-        """
-
-        if not self.result_list:
-            raise SystemExit("All files have been upload successfully.")
-
-        print("─" * 20)
-        print(f"{'No':<4} {'Ship_Ref ':^16}")
-        print("─" * 20)
-
-        for index, file in enumerate(self.result_list, 1):
-            print(f"{index:<4} {file:<16}")
-
-        print("─" * 20)
-
-
     def start(self):
         """
         1. Load the latest CSV reference list and cleaned SFTP uploads.
@@ -262,29 +281,33 @@ class FileComparator:
 
         # New data uploaded in SFTP
         sftp_data = self.read_latest_txt(self.sftp_dir, True)
+
         # Data that uploaded in SFTP but not recorded in csv
         pre_upload = self.read_last_record(self.surplus_dir, "surplus")
+
+        # Use dictionary to remove duplicates (key is unique), then convert to list
         sftp_combined = list(dict.fromkeys(list(pre_upload) + list(sftp_data)))
+        # Convert to sets for efficient O(1) lookups
         sftp_set = set(sftp_combined)
 
         # New data updated in csv
         csv_data = self.read_latest_txt(self.csv_dir, False)
+
         # Last missing data, check again
         last_missing_sftp = self.read_last_record(self.result_dir, "result")
-        # Use dictionary to remove duplicates (key is unique), then convert to list
+
         csv_combined = list(dict.fromkeys(list(csv_data) + list(last_missing_sftp)))
-        # Separate set ONLY for O(1) lookup — doesn't need order
         csv_set = set(csv_combined)
 
         # Files haven't been upload to SFTP
         file_missing = [f for f in csv_combined if f not in sftp_set]
         self.result_list = list(dict.fromkeys(file_missing))
+        logging.info(f"Total {len(self.result_list)} data haven't upload to SFTP")
 
         # Files hasnt recorded in csv
         wait_update = [f for f in sftp_combined if f not in csv_set]
         self.insequence_list = list(dict.fromkeys(wait_update))
-        logging.info(f"{len(self.result_list)} files haven't upload to SFTP")
-        logging.info(f"{len(self.insequence_list)} file hasn't updated in csv")
+        logging.info(f"Total {len(self.insequence_list)} data hasn't updated in csv")
 
         self.display_result_in_terminal()
 
@@ -293,43 +316,6 @@ class FileComparator:
 
         # Lock: rename SFTP file to prevent reprocessing same data
         self.mark_sftp_processed()
-        
-
-    def export_result(self, output_data: list, path: Path, title: str = ""):
-        """
-        Export result to .txt file with timestamp.
-
-        If latest output file is same as the current data, the system will
-        not create a new .txt file. This reduce duplicate files created.
-        """
-
-        # Check latest .txt file to avoid redundant data export
-        txt_files = list(path.glob("*.txt"))
-
-        if txt_files:
-            latest_txt = max(txt_files, key=os.path.getmtime)
-
-            try:
-                with open(latest_txt, 'r', encoding='utf-8') as file:
-                    past_list = file.read().splitlines()
-
-                if past_list == output_data:
-                    logging.warning(f"{title} same as latest file {latest_txt.name}, no file created")
-                    return
-
-            except Exception as e:
-                logging.warning(f"Could not read {latest_txt.name} | {e}")
-
-        # Define output path
-        result_file = path / f"{CURRENT_DATE_TIME}.txt"
-
-        # Writing results
-        with open(result_file, 'w', encoding='utf-8') as file:
-            for ship_ref in output_data:
-                file.write(f"{ship_ref}\n")
-
-        logging.info(f"{title} have been uploaded and renamed as {CURRENT_DATE_TIME}.txt")
-        print(f"{title} saved as {CURRENT_DATE_TIME}.txt")
 
 
 # -------------------------------------------------

@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 from config import setup_logging, CURRENT_DATE_TIME, CSV_DIR, SFTP_DIR,\
-RESULT_DIR, SURPLUS_DIR
+RESULT_DIR, SURPLUS_DIR, DATE_TIME
 
 # Initialize shared logging
 setup_logging()
@@ -135,7 +135,7 @@ class FileComparator:
 
             # If the file is renamed properly, its processed
             if len(date_n_time) == 2 and date_n_time[1].isdigit() and len(date_n_time[1]) == 6:
-                raise SystemExit(f"{file_type}: '{files_sorted[0][0].name}' has already been processed")
+                raise SystemExit(f"Latest {file_type} has already been processed")
 
             try:
                 with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
@@ -254,18 +254,16 @@ class FileComparator:
         if not self.latest_sftp_file or not self.latest_sftp_file.exists():
             return
 
-        date_part = self.latest_sftp_file.stem.split("_")[0]
-        time_part = CURRENT_DATE_TIME.split("_")[1]
-        new_name = f"{date_part}_{time_part}.txt"
-        new_path = self.latest_sftp_file.parent / new_name
+        timestamp = f"{CURRENT_DATE_TIME}.txt"
+        new_path = self.latest_sftp_file.parent / timestamp
 
         if new_path.exists():
-            logging.warning(f"Cannot rename: {new_name} already exists")
+            logging.warning(f"Cannot rename: {timestamp} already exists")
             return
 
         self.latest_sftp_file.rename(new_path)
-        logging.info(f"SFTP file processed: {self.latest_sftp_file.name} → {new_name}")
-        print(f"SFTP file renamed: {self.latest_sftp_file.name} → {new_name}")
+        logging.info(f"SFTP file rename as: {timestamp}")
+        print(f"SFTP file renamed: {self.latest_sftp_file.name} -> {timestamp}")
 
 
     def start(self):

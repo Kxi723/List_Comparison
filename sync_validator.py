@@ -41,103 +41,15 @@ class FileComparator:
         self.latest_sftp_file = None  # Track latest SFTP file for post-processing rename
 
 
-    def read_latest_txt(self, dir_path: Path, sftp: bool = False) -> list:
-        """
-        Read Ship_Ref from the most recent .txt file(s).
-        When used for csv data, reads latest file.
-        When used for sftp data, reads two latest files and return
-        new Ship_Ref found.
-        """
-
-        logging.debug(f"Reading directory {dir_path}")
-        file_type = "sftp" if sftp else "csv"
-
-        # Ensure the path exists & is a directory
-        if not dir_path.exists() or not dir_path.is_dir():
-            raise FileNotFoundError("Directory not found")
-
-        txt_files = list(dir_path.glob("*.txt"))
-        logging.debug(f"{len(txt_files)} .txt files found")
-
-        # Nothing inside the directory
-        if not txt_files:
-            raise FileNotFoundError("Didn't find any .txt files")
-
-        # If only one file, everything is considered "new added"
-        if sftp and len(txt_files) < 2:
-            logging.warning("All sftp in past 10 days are new uploaded.")
-
-        files_dict = {}
-        for file in txt_files:
-
-            # Get file modification timestamp and convert to Datetime object
-            timestamp = os.path.getmtime(file)
-            datestamp = datetime.fromtimestamp(timestamp)
-
-            # Utilise setdefault() to ensure datestamp didnt overwrite
-            files_dict.setdefault(file, datestamp)
-
-        # Sort in descending order based on value(datestamp)
-        files_sorted = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
-
-        logging.info(f"Latest {file_type} file found: {files_sorted[0][0].name}")
-
-        # For csv, return one list
-        if not sftp:
-            try:
-                with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
-                    # Remove '\n' in list()
-                    return data.read().splitlines()
-                
-            except Exception as e:
-                raise SystemExit(f"Couldn't read {files_sorted[0][0].name} | {e}")
-
-        # For sftp, get new data upload
-        else:
-            # Check if latest SFTP file was already processed (has HHMMSS suffix)
-            latest_stem = files_sorted[0][0].stem
-            parts = latest_stem.split("_", 1)
-            if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 6:
-                raise SystemExit(
-                    f"SFTP file '{files_sorted[0][0].name}' has already been processed.\n"
-                    "Please add a new SFTP snapshot before running again."
-                )
-            self.latest_sftp_file = files_sorted[0][0]
-
-            logging.info(f"Second {file_type} file found: {files_sorted[1][0].name}")
-
-            try:
-                with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
-                    new_list = data.read().splitlines()
-                    new_list = self.filter_parent_path(new_list)
-            except Exception as e:
-                raise SystemExit(f"Couldn't read {files_sorted[0][0].name} | {e}")
-
-            try:
-                with open(files_sorted[1][0], 'r', encoding='utf-8') as data:
-                    old_list = data.read().splitlines()
-                    old_list = self.filter_parent_path(old_list)
-            except Exception as e:
-                raise SystemExit(f"Couldn't read {files_sorted[1][0].name} | {e}")
-
-            new_data = [line for line in new_list if line not in set(old_list)]
-            logging.info(f"Found {len(new_data)} new files uploaded")
-
-            return new_data
-
-
     def filter_parent_path(self, list: list) -> list:
         """
-        Read latest data and clean each path into a bare Ship_Ref.
-
-        First, strip the leading directory path (e.g. /opt/sftp/...),
-        then remove the date-time suffix before the first '_'
-        (e.g. REF123_01012024120000.pdf → REF123).
+        Remove parent path and timestamped suffix,
+        return a list of filename itself only
         """
 
         cleaned_data = []
 
-        logging.debug("Cleaning sftp file path")
+        logging.debug("Cleaning data file path")
         for ship_ref in list:
 
             # Remove directory path to get file name
@@ -154,9 +66,98 @@ class FileComparator:
                 cleaned_data.append(filename)
 
         if not cleaned_data:
-            logging.warning("None valid ship_ref is read")
+            logging.warning("No data found in this file")
 
         return cleaned_data
+
+
+    def read_latest_txt(self, dir_path: Path, sftp: bool = False) -> list:
+        """
+        CSV:
+        Return the latest file path generated from csv_extractor.py
+
+        SFTP:
+        If only has one file, all data considered as new added.
+        If the latest file has been processed, this program terminated.
+        Return new SFTP data added.
+        """
+
+        logging.debug(f"Reading directory {dir_path}")
+        file_type = "SFTP" if sftp else "csv"
+
+        # Ensure the path exists & is a directory
+        if not dir_path.exists() or not dir_path.is_dir():
+            raise FileNotFoundError("Error accessing directory path provided")
+
+        txt_files = list(dir_path.glob("*.txt"))
+        logging.debug(f"Found {len(txt_files)} text files")
+
+        # Nothing inside the directory
+        if not txt_files:
+            raise FileNotFoundError("Error finding any text file")
+
+        # If only one file, everything is considered "new added"
+        if sftp and len(txt_files) < 2:
+            logging.warning("Only found 1 SFTP file, all data in past 10 days are considered as new uploaded")
+
+        files_dict = {}
+        for file in txt_files:
+
+            # Get file modification timestamp and convert to Datetime object
+            timestamp = os.path.getmtime(file)
+            datestamp = datetime.fromtimestamp(timestamp)
+
+            # Utilise setdefault() to ensure datestamp didnt overwrite
+            files_dict.setdefault(file, datestamp)
+
+        # Sort in descending order based on value(datestamp)
+        files_sorted = sorted(files_dict.items(), key=lambda item: item[1], reverse=True)
+
+        logging.info(f"Latest {file_type} file is: {files_sorted[0][0].name}")
+
+        # For csv, return one list
+        if not sftp:
+            try:
+                with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
+                    # Remove '\n' in list()
+                    return data.read().splitlines()
+                
+            except Exception as e:
+                raise SystemExit(f"Error reading {files_sorted[0][0].name} | {e}")
+
+        # For sftp, get new data upload
+        else:
+            # Clear parent path & its extension
+            file_name = files_sorted[0][0].stem
+
+            # Extract to date & time
+            date_n_time = file_name.split("_", 1)
+
+            # If the file is renamed properly, its processed
+            if len(date_n_time) == 2 and date_n_time[1].isdigit() and len(date_n_time[1]) == 6:
+                raise SystemExit(f"{file_type}: '{files_sorted[0][0].name}' has already been processed")
+
+            try:
+                with open(files_sorted[0][0], 'r', encoding='utf-8') as data:
+                    new_list = self.filter_parent_path(data.read().splitlines())
+
+            except Exception as e:
+                raise SystemExit(f"Error reading {files_sorted[0][0].name} | {e}")            
+
+            logging.info(f"Second {file_type} file is: {files_sorted[1][0].name}")
+
+            try:
+                with open(files_sorted[1][0], 'r', encoding='utf-8') as data:
+                    old_list = self.filter_parent_path(data.read().splitlines())
+
+            except Exception as e:
+                raise SystemExit(f"Error reading {files_sorted[1][0].name} | {e}")
+
+            new_data = [line for line in new_list if line not in set(old_list)]
+            logging.info(f"Total {len(new_data)} new data uploaded")
+
+            self.latest_sftp_file = files_sorted[0][0]
+            return new_data
 
 
     def read_last_record(self, dir_path: Path, label: str = "") -> list:
@@ -261,12 +262,10 @@ class FileComparator:
 
         # New data uploaded in SFTP
         sftp_data = self.read_latest_txt(self.sftp_dir, True)
-
         # Data that uploaded in SFTP but not recorded in csv
         pre_upload = self.read_last_record(self.surplus_dir, "surplus")
         sftp_combined = list(dict.fromkeys(list(pre_upload) + list(sftp_data)))
         sftp_set = set(sftp_combined)
-
 
         # New data updated in csv
         csv_data = self.read_latest_txt(self.csv_dir, False)

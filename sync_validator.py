@@ -154,6 +154,7 @@ class FileComparator:
                 raise SystemExit(f"Error reading {files_sorted[1][0].name} | {e}")
 
             new_data = [line for line in new_list if line not in set(old_list)]
+            new_data = list(dict.fromkeys(new_data))
             logging.info(f"Total {len(new_data)} new data uploaded")
 
             self.latest_sftp_file = files_sorted[0][0]

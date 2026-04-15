@@ -1,108 +1,77 @@
-# SFTP Reconciler
+# 📦 SFTP Reconciler
 
-> A Python toolkit that reconciles expected shipment files (from CSV exports) against files actually uploaded to an SFTP server — highlighting what's **missing** and what's uploaded **in advance**.
+> An automated Python toolkit designed to reconcile expected shipment documents from CSV report against actual files uploaded to SFTP server. Built to ensure zero missed uploads and eliminate tedious manual checks.
 
----
+## 📖 Background & Problem Statement
 
-## Overview
+During my internship, a service issue caused the **DocuShare** and **SFTP server** stop syncing properly. As an intern, I had to manually cross-check the daily document uploads to SFTP. 
 
-Shipping operations export CSV manifests listing expected shipment references, while an SFTP server holds the files that have actually been uploaded. This tool bridges the two by:
+The manual process was time-consuming and prone to human error. So I developed this automation script to reliably identify **missing documents** that haven't been uploaded, as well as documents uploaded **in advance**.
 
-1. **Extracting** newly added shipment references from CSV exports (`csv_extractor.py`).
-2. **Comparing** those references against the SFTP file listing to find discrepancies (`sync_validator.py`).
-3. **Exporting** timestamped result files so you can track what's missing and what arrived early.
+## ⚙️ How It Works (The Logic)
 
----
+The reconciliation process is split into two main scripts:
 
-## Features
+### 1. `csv_extractor.py` - Identifying Expected Documents
+Receives a CSV containing shipment data. The crucial columns are `Ship Ref` (the document's filename) and `POD`.
+- **The Process:** The script reads the directory containing the CSV files and specifically picks the **two most recent files**. 
+- **60-Day Lookback:** It filters for data within the last 60 days. *Why 60 days?* My supervisor advised that some PODs might unpredictably update or appear for older dates. Comparing 60 days covers edge cases securely without sacrificing performance.
+- **Diffing:** It compares the two CSVs to extract strictly the **newly added** `Ship Ref`s (data present in the newest CSV but not the older one). 
+- **Output:** Generates a `.txt` file containing these new references for the next script to use.
 
-- **Incremental diff** — only processes *newly added* CSV records and *newly uploaded* SFTP files, avoiding redundant work.
-- **Carry-forward logic** — unresolved missing/surplus items from the last run are automatically merged into the next comparison.
-- **Duplicate-safe exports** — skips writing a new output file when the data is identical to the previous run.
-- **SFTP file locking** — renames processed SFTP files with a timestamp to prevent reprocessing.
-- **Activity logging** — all operations are logged to `activity.log` for audit and debugging.
+### 2. `sync_validator.py` - Validating Against SFTP
+After running the first script, I manually SSH into our SFTP server to fetch a list of files uploaded in the last 10 days and place it as a text file in the `/sftp/` directory.
+- **The Process:** The script compares the **two newest SFTP text files** (to find newly uploaded documents) against the fresh CSV data.
+- **Reconciliation:** It consolidates the current state, resolving logic to categorize shipments into two core outputs:
+  - ❌ **Missing Documents (In CSV, NOT in SFTP):** Files that were documented but failed to reach from SFTP. These require upload.
+  - ⚠️ **Pre-uploads (In SFTP, NOT in CSV):** Files found in SFTP server but missing from the CSV report. These are usually files uploaded early by admins, or cases where the CSV report isn't latest version.
+- **Carry-over:** Elegantly handles ongoing sync gaps by tracking and carrying forward previous "missing" or "pre-uploaded" documents across multiple days until they eventually reconcile.
 
----
+## 🛡️ Safety & Safeguards Built-In
 
-## Folder Structure
+To prevent user mistakes (like running scripts twice sequentially) or misinterpreting data, I designed several defensive safety mechanisms:
 
-```
+- **Timestamp Marking:** Once text files (SFTP or CSV data files) are processed, the script explicitly appends a timestamp (e.g., `_HHMMSS`) to the filename. This serves to "lock" the file, ensuring that the exact same dataset will not be consumed twice inadvertently.
+- **Duplicate-Safe Exports:** Avoids creating redundant output reports if there are no new discrepancy changes compared to the last run.
+- **Empty State Logging:** Safely generates empty tracking files and logs whenever "no new data is found", leaving a reliable, traceable record of the script's execution.
+
+## 📁 Repository Structure
+
+```text
 sftp_reconciler/
-├── csv_extractor.py        # Step 1 — Extract new Ship Refs from CSV
-├── sync_validator.py       # Step 2 — Compare CSV vs SFTP
-├── config.py               # Shared configuration & logging setup
-├── .env                    # Environment variables (git-ignored)
-├── activity.log            # Runtime log (git-ignored)
-│
-├── evisibility_folder/     # Input  — CSV exports (*.csv) & generated .txt lists
-├── sftp/                   # Input  — SFTP file listings (*.txt)
-├── missing/                # Output — Ship Refs not yet uploaded to SFTP
-└── in_advance/             # Output — SFTP files not yet recorded in CSV
+├── csv_extractor.py        # 1st Step: Extracts & diffs new Ship Refs from CSV
+├── sync_validator.py       # 2nd Step: Compares CSV data vs SFTP log, generates reports
+├── config.py               # Shared configuration and logging setup
+├── activity.log            # Runtime log for audit and debugging (auto-generated)
+├── evisibility_folder/     # Input: CSV exports & script-generated .txt lists
+├── sftp/                   # Input: SFTP file listing logs
+├── missing/                # Output: Reports of Ship Refs NOT yet in SFTP
+└── in_advance/             # Output: Reports of files in SFTP but NOT in CSV
 ```
 
-> **Note:** The `evisibility_folder/`, `sftp/`, `missing/`, and `in_advance/` directories are git-ignored. `missing/` and `in_advance/` are auto-created on first run.
+## 🚀 Quick Start Guide
 
----
-
-## Prerequisites
-
-- **Python 3.8+**
+### Prerequisites
+- Python 3.8+
 - Required packages:
-  ```
-  pandas
-  python-dotenv
-  ```
-  Install with:
   ```bash
   pip install pandas python-dotenv
   ```
 
----
+### Running the Toolkit
 
-## How to Use
+**Step 1: Extract new expected shipments**
+1. Ensure at least two recent `.csv` files are inside `evisibility_folder/`
+2. Run the extractor:
+   ```bash
+   python csv_extractor.py
+   ```
+   *This outputs an updated expected list text file in the same folder.*
 
-### Step 1 — Extract new shipment references
-
-```bash
-python csv_extractor.py
-```
-
-- Place at least **two** `.csv` files (with `Ship Ref` and `POD` columns) into `evisibility_folder/`.
-- The script compares the two most recent CSVs (by modification date), filters records from the past 60 days, and identifies newly added shipment references.
-- A `.txt` file (e.g. `09042026_AM.txt`) is created in `evisibility_folder/` containing the new Ship Refs.
-
-### Step 2 — Validate SFTP uploads
-
-```bash
-python sync_validator.py
-```
-
-- Place your SFTP file listing(s) as `.txt` files into `sftp/`.
-- The script diffs the two most recent SFTP listings to find newly uploaded files, cleans the filenames (strips directory paths and `_DDMMYYYY_HHMMSS.pdf` suffixes), and compares them against the CSV reference list.
-- Results are exported to:
-  | Folder | Contains |
-  | --- | --- |
-  | `missing/` | Ship Refs in CSV but **not yet on SFTP** |
-  | `in_advance/` | Files on SFTP but **not yet in CSV** |
-- The processed SFTP file is renamed with a full timestamp to prevent re-consumption.
-
----
-
-## Logging
-
-All activity is appended to `activity.log` in the project root. Log level is set to `DEBUG` by default and can be adjusted in `config.py`.
-
----
-
-## Configuration
-
-Core paths and constants are defined in `config.py`:
-
-| Variable | Description |
-| --- | --- |
-| `CSV_DIR` | Directory for CSV exports (`evisibility_folder/`) |
-| `SFTP_DIR` | Directory for SFTP listings (`sftp/`) |
-| `RESULT_DIR` | Output directory for missing files (`missing/`) |
-| `SURPLUS_DIR` | Output directory for surplus files (`in_advance/`) |
-
-Environment-specific values can be placed in a `.env` file (loaded via `python-dotenv`).
+**Step 2: Compare against SFTP records**
+1. Place the fetched SFTP `.txt` listings into the `sftp/` directory.
+2. Run the validator:
+   ```bash
+   python sync_validator.py
+   ```
+   *This will compile discrepancy reports inside `missing/` and `in_advance/`, output results directly to the terminal, and securely lock the processed files by renaming them with timestamps.*
